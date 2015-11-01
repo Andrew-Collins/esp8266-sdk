@@ -31,6 +31,7 @@ THE SOFTWARE.
 #include "freertos/task.h"
 
 #include "extralib.h"
+#include "uart.h"
 
 #define DBG printf
 /*

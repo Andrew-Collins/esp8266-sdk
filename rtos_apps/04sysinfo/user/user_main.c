@@ -29,6 +29,7 @@ THE SOFTWARE.
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "uart.h"
 /*
  * this task will print some info about the system
  */

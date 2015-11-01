@@ -1,33 +1,24 @@
-/*
-The MIT License (MIT)
-
-Copyright (c) 2014 Matt Callow
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-*/
-/*
-	The obligatory hello world demo using FreeRTOS
-*/
+/******************************************************************************
+ * Copyright 2013-2014 Espressif Systems (Wuxi)
+ *
+ * FileName: user_main.c
+ *
+ * Description: entry file of user application
+ *
+ * Modification history:
+ *     2014/12/1, v1.0 create this file.
+*******************************************************************************/
 #include "esp_common.h"
 
+/******************************************************************************
+ * FunctionName : user_init
+ * Description  : entry of user application, init user function here
+ * Parameters   : none
+ * Returns      : none
+*******************************************************************************/
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "uart.h"
 
 /*
  * this task will print the message
@@ -48,10 +39,21 @@ void helloworld(void *pvParameters)
 void ICACHE_FLASH_ATTR
 user_init(void)
 {
-	// unsure what the default bit rate is, so set to a known value
-	uart_div_modify(UART0, UART_CLK_FREQ / (BIT_RATE_9600));
+	UART_WaitTxFifoEmpty(UART0);
+        UART_WaitTxFifoEmpty(UART1);
+
+	UART_ConfigTypeDef uart_config;
+    	uart_config.baud_rate    = BIT_RATE_9600;
+	uart_config.data_bits     = UART_WordLength_8b;
+        uart_config.parity          = USART_Parity_None;
+        uart_config.stop_bits     = USART_StopBits_1;
+        uart_config.flow_ctrl      = USART_HardwareFlowControl_None;
+        uart_config.UART_RxFlowThresh = 120;
+        uart_config.UART_InverseMask = UART_None_Inverse;
+        UART_ParamConfig(UART0, &uart_config);
+
+	UART_SetPrintPort(UART0);
+
 	xTaskCreate(helloworld, "hw", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
+	
 }
-
-
-// vim: ts=4 sw=4 noexpandtab
