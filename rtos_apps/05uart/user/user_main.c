@@ -1,87 +1,102 @@
-/*
-The MIT License (MIT)
-
-Copyright (c) 2014 Matt Callow
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-*/
-/*
-	Testing the uart receive functionallity
-	Uses a interrupt routine and FreeRTOS Queue to handle rxed chars
-*/
+/******************************************************************************
+ * Copyright 2013-2014 Espressif Systems (Wuxi)
+ *
+ * FileName: user_main.c
+ *
+ * Description: entry file of user application
+ *
+ * Modification history:
+ *     2014/12/1, v1.0 create this file.
+*******************************************************************************/
 #include "esp_common.h"
 
+/******************************************************************************
+ * FunctionName : user_init
+ * Description  : Buffers input characters from UART and outputs them when a
+ *                 carriage return is received. 
+ * Parameters   : none
+ * Returns      : none
+*******************************************************************************/
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-
-#include "extralib.h"
 #include "uart.h"
+#include "esp_common.h"
 
-#define DBG printf
+// see eagle_soc.h for these definitions
+#define LED_GPIO 2
+#define LED_GPIO_MUX PERIPHS_IO_MUX_GPIO2_U
+#define LED_GPIO_FUNC FUNC_GPIO2
+
+// This was defined in the old SDK.
+#ifndef GPIO_OUTPUT_SET
+#define GPIO_OUTPUT_SET(gpio_no, bit_value) \
+    gpio_output_set(bit_value<<gpio_no, ((~bit_value)&0x01)<<gpio_no, 1<<gpio_no,0)
+#endif
+
 /*
- * this task will read the uart and echo back all characters entered
+ * this task will blink an LED
  */
-void 
-read_task(void *pvParameters)
+void blinky(void *pvParameters)
 {
+	const portTickType xDelay = 500 / portTICK_RATE_MS;
+	static uint8_t state=0;
+	PIN_FUNC_SELECT(LED_GPIO_MUX, LED_GPIO_FUNC);
 	for(;;)
 	{
-		char c = uart_getchar();
-		if (c == '\r')
-		{
-			os_putc('\n');
-		}
-		os_putc(c);
+		GPIO_OUTPUT_SET(LED_GPIO, state);
+		state ^=1;
+		vTaskDelay( xDelay);
 	}
 }
 
+
 /*
- * Print some status info
+ * this task will print the message
  */
-void 
-status_task(void *pvParameters)
+void helloworld(void *pvParameters)
 {
+	const portTickType xDelay = 1000 / portTICK_RATE_MS;
 	for(;;)
 	{
-		printf("uart_rx_bytes=%d, uart_rx_overruns=%d\r\n", uart_rx_bytes, uart_rx_overruns);
-		vTaskDelay(10000 / portTICK_RATE_MS);
+		printf("Hello World!\n");
+		vTaskDelay( xDelay);
 	}
 }
+
 /*
  * This is entry point for user code
  */
 void ICACHE_FLASH_ATTR
 user_init(void)
 {
-	portBASE_TYPE ret;
-	// unsure what the default bit rate is, so set to a known value
-	uart_div_modify(UART0, UART_CLK_FREQ / (BIT_RATE_9600));
-	printf("Start\r\n");
-	wifi_set_opmode(NULL_MODE);
-	uart_rx_init();
-	DBG("About to create task\r\n");
-	xTaskHandle t;
-	ret = xTaskCreate(read_task, "rx", 256, NULL, 2, &t);
-	DBG("xTaskCreate returns %d handle is %d\n", ret, t);
-	ret = xTaskCreate(status_task, "st", 256, NULL, 3, &t);
-	DBG("xTaskCreate returns %d handle is %d\n", ret, t);
+	UART_WaitTxFifoEmpty(UART0);
+        UART_WaitTxFifoEmpty(UART1);
+
+	UART_ConfigTypeDef uart_config;
+    	uart_config.baud_rate    = BIT_RATE_9600;
+	uart_config.data_bits     = UART_WordLength_8b;
+        uart_config.parity          = USART_Parity_None;
+        uart_config.stop_bits     = USART_StopBits_1;
+        uart_config.flow_ctrl      = USART_HardwareFlowControl_None;
+        uart_config.UART_RxFlowThresh = 120;
+        uart_config.UART_InverseMask = UART_None_Inverse;
+        UART_ParamConfig(UART0, &uart_config);
+
+	UART_SetPrintPort(UART0);
+
+    UART_IntrConfTypeDef uart_intr;
+    uart_intr.UART_IntrEnMask = UART_RXFIFO_TOUT_INT_ENA | UART_FRM_ERR_INT_ENA | UART_RXFIFO_FULL_INT_ENA | UART_TXFIFO_EMPTY_INT_ENA;
+    uart_intr.UART_RX_FifoFullIntrThresh = 10;
+    uart_intr.UART_RX_TimeOutIntrThresh = 2;
+    uart_intr.UART_TX_FifoEmptyIntrThresh = 20;
+    UART_IntrConfig(UART0, &uart_intr);
+
+    UART_SetPrintPort(UART0);
+    UART_intr_handler_register(uart0_rx_intr_handler);
+    ETS_UART_INTR_ENABLE();
+
+	
+	xTaskCreate(blinky, "bl", configMINIMAL_STACK_SIZE, NULL, 3, NULL);
+	// xTaskCreate(helloworld, "hw", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
+	
 }
-
-
-// vim: ts=4 sw=4 noexpandtab

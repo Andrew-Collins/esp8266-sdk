@@ -264,11 +264,13 @@ UART_SetIntrEna(UART_Port uart_no, uint32 ena_mask)
     SET_PERI_REG_MASK(UART_INT_ENA(uart_no), ena_mask);
 }
 
-// void ICACHE_FLASH_ATTR
-// UART_intr_handler_register(void *fn)
-// {
-//     _xt_isr_attach(ETS_UART_INUM, fn);
-// }
+void ICACHE_FLASH_ATTR
+UART_intr_handler_register(void *fn)
+{
+    // _xt_isr func = fn;
+    // _xt_isr_attach(ETS_UART_INUM, func, fn);
+    _xt_isr_attach(ETS_UART_INUM, fn, NULL);
+}
 
 void ICACHE_FLASH_ATTR
 UART_SetPrintPort(UART_Port uart_no)
@@ -326,7 +328,7 @@ UART_IntrConfig(UART_Port uart_no,  UART_IntrConfTypeDef *pUARTIntrConf)
     SET_PERI_REG_MASK(UART_INT_ENA(uart_no), pUARTIntrConf->UART_IntrEnMask);
 }
 
-LOCAL void
+void
 uart0_rx_intr_handler(void *para)
 {
     /* uart0 and uart1 intr combine togther, when interrupt occur, see reg 0x3ff20020, bit2, bit0 represents
@@ -341,6 +343,7 @@ uart0_rx_intr_handler(void *para)
     uint32 uart_intr_status = READ_PERI_REG(UART_INT_ST(uart_no)) ;
 
     while (uart_intr_status != 0x0) {
+        printf("hi");
         if (UART_FRM_ERR_INT_ST == (uart_intr_status & UART_FRM_ERR_INT_ST)) {
             //printf("FRM_ERR\r\n");
             WRITE_PERI_REG(UART_INT_CLR(uart_no), UART_FRM_ERR_INT_CLR);
@@ -372,6 +375,8 @@ uart0_rx_intr_handler(void *para)
             CLEAR_PERI_REG_MASK(UART_INT_ENA(UART0), UART_TXFIFO_EMPTY_INT_ENA);
         } else {
             //skip
+            printf("hiya");
+            WRITE_PERI_REG(UART_INT_CLR(UART0), UART_RXFIFO_TOUT_INT_CLR);
         }
 
         uart_intr_status = READ_PERI_REG(UART_INT_ST(uart_no)) ;
@@ -402,8 +407,8 @@ uart_init_new(void)
     UART_IntrConfig(UART0, &uart_intr);
 
     UART_SetPrintPort(UART0);
-    // UART_intr_handler_register(uart0_rx_intr_handler);
-    // ETS_UART_INTR_ENABLE();
+    UART_intr_handler_register(uart0_rx_intr_handler);
+    ETS_UART_INTR_ENABLE();
 
     /*
     UART_SetWordLength(UART0,UART_WordLength_8b);

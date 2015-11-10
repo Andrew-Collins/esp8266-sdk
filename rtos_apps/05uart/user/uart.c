@@ -264,11 +264,13 @@ UART_SetIntrEna(UART_Port uart_no, uint32 ena_mask)
     SET_PERI_REG_MASK(UART_INT_ENA(uart_no), ena_mask);
 }
 
-// void ICACHE_FLASH_ATTR
-// UART_intr_handler_register(void *fn)
-// {
-//     _xt_isr_attach(ETS_UART_INUM, fn);
-// }
+void ICACHE_FLASH_ATTR
+UART_intr_handler_register(void *fn)
+{
+    // _xt_isr func = fn;
+    // _xt_isr_attach(ETS_UART_INUM, func, fn);
+    _xt_isr_attach(ETS_UART_INUM, fn, NULL);
+}
 
 void ICACHE_FLASH_ATTR
 UART_SetPrintPort(UART_Port uart_no)
@@ -326,7 +328,7 @@ UART_IntrConfig(UART_Port uart_no,  UART_IntrConfTypeDef *pUARTIntrConf)
     SET_PERI_REG_MASK(UART_INT_ENA(uart_no), pUARTIntrConf->UART_IntrEnMask);
 }
 
-LOCAL void
+void
 uart0_rx_intr_handler(void *para)
 {
     /* uart0 and uart1 intr combine togther, when interrupt occur, see reg 0x3ff20020, bit2, bit0 represents
@@ -336,6 +338,8 @@ uart0_rx_intr_handler(void *para)
     uint8 uart_no = UART0;//UartDev.buff_uart_no;
     uint8 fifo_len = 0;
     uint8 buf_idx = 0;
+    static uint8 tx_buf_len = 0;
+    static uint8 tx_buf[256] = {0};
     uint8 fifo_tmp[128] = {0};
 
     uint32 uart_intr_status = READ_PERI_REG(UART_INT_ST(uart_no)) ;
@@ -344,36 +348,52 @@ uart0_rx_intr_handler(void *para)
         if (UART_FRM_ERR_INT_ST == (uart_intr_status & UART_FRM_ERR_INT_ST)) {
             //printf("FRM_ERR\r\n");
             WRITE_PERI_REG(UART_INT_CLR(uart_no), UART_FRM_ERR_INT_CLR);
+        // Check if received buffer is full
         } else if (UART_RXFIFO_FULL_INT_ST == (uart_intr_status & UART_RXFIFO_FULL_INT_ST)) {
+            //If so print as such, and print out all the received characters. 
             printf("full\r\n");
+            //Get the length of the buffer, aka the number of received characters
             fifo_len = (READ_PERI_REG(UART_STATUS(UART0)) >> UART_RXFIFO_CNT_S)&UART_RXFIFO_CNT;
             buf_idx = 0;
-
+            //Print them out one at a time.
             while (buf_idx < fifo_len) {
                 uart_tx_one_char(UART0, READ_PERI_REG(UART_FIFO(UART0)) & 0xFF);
                 buf_idx++;
-            }
-
+            }   
+            //Clear the full interrupt flag
             WRITE_PERI_REG(UART_INT_CLR(UART0), UART_RXFIFO_FULL_INT_CLR);
         } else if (UART_RXFIFO_TOUT_INT_ST == (uart_intr_status & UART_RXFIFO_TOUT_INT_ST)) {
-            printf("tout\r\n");
-            fifo_len = (READ_PERI_REG(UART_STATUS(UART0)) >> UART_RXFIFO_CNT_S)&UART_RXFIFO_CNT;
             buf_idx = 0;
-
-            while (buf_idx < fifo_len) {
-                uart_tx_one_char(UART0, READ_PERI_REG(UART_FIFO(UART0)) & 0xFF);
-                buf_idx++;
+            //Put input character into next position in the buffer
+            tx_buf[tx_buf_len] = READ_PERI_REG(UART_FIFO(UART0)) & 0xFF;
+            //Add one to the length variable
+            tx_buf_len += 1;
+            //Observe if the character was a return character
+            if ((int)tx_buf[tx_buf_len - 1] == 13) {
+                //If so print the length of the buffer as well as the contents of the buffer
+                printf("buflen %d\r\n", tx_buf_len);
+                //This loop prints the buffer one character at a time
+                while (buf_idx < tx_buf_len) {
+                    //Function for printing a single character.
+                    uart_tx_one_char(UART0, tx_buf[buf_idx]);
+                    buf_idx++;
+                }
+                printf("\r\n");
+                //Reset buffer length to 0
+                tx_buf_len = 0;    
             }
-
+            //Clear the interrupt
             WRITE_PERI_REG(UART_INT_CLR(UART0), UART_RXFIFO_TOUT_INT_CLR);
+        //Check if the buffer is empty
         } else if (UART_TXFIFO_EMPTY_INT_ST == (uart_intr_status & UART_TXFIFO_EMPTY_INT_ST)) {
+            //If so, print as such, clear the interrupt and clear the empty flag.
             printf("empty\n\r");
             WRITE_PERI_REG(UART_INT_CLR(uart_no), UART_TXFIFO_EMPTY_INT_CLR);
             CLEAR_PERI_REG_MASK(UART_INT_ENA(UART0), UART_TXFIFO_EMPTY_INT_ENA);
         } else {
             //skip
         }
-
+        //Update the status variable with the current UART status
         uart_intr_status = READ_PERI_REG(UART_INT_ST(uart_no)) ;
     }
 }
@@ -402,8 +422,8 @@ uart_init_new(void)
     UART_IntrConfig(UART0, &uart_intr);
 
     UART_SetPrintPort(UART0);
-    // UART_intr_handler_register(uart0_rx_intr_handler);
-    // ETS_UART_INTR_ENABLE();
+    UART_intr_handler_register(uart0_rx_intr_handler);
+    ETS_UART_INTR_ENABLE();
 
     /*
     UART_SetWordLength(UART0,UART_WordLength_8b);
