@@ -107,5 +107,6 @@ void UART_SetBaudrate(UART_Port uart_no, uint32 baud_rate);
 void UART_SetFlowCtrl(UART_Port uart_no, UART_HwFlowCtrl flow_ctrl, uint8 rx_thresh);
 void UART_SetLineInverse(UART_Port uart_no, UART_LineLevelInverse inverse_mask) ;
 void uart_init_new(void);
+void uart0_rx_intr_handler(void *para);
 
 #endif

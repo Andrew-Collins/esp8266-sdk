@@ -3,6 +3,7 @@ make BOOT=new APP=1 SPI_SPEED=40 SPI_MODE=QIO SPI_SIZE_MAP=2
 
 # Move the bin files into the right place
 cd $BIN_PATH >/dev/null
+rm -r old > /dev/null
 mkdir old >/dev/null
 mv *.bin old  >/dev/null
 cd upgrade >/dev/null
