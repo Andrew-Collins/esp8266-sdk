@@ -1,7 +1,7 @@
 /*
 The MIT License (MIT)
 
-Copyright (c) 2015 Matt Callow
+Copyright (c) 2015 Matt Callow, 2015 Andrew Collins
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -35,8 +35,11 @@ THE SOFTWARE.
 #include "lwip/sockets.h"
 #include "lwip/err.h"
 
-#include "extralib.h"
+// #include "extralib.h"
+
 #include "user_config.h"
+#include "uart.h"
+// #include "gpio.h"
 
 static struct ip_info ipconfig;
 
@@ -52,6 +55,7 @@ typedef struct {
 static user_config_t user_config;
 static uint8_t wifi_status=0;
 static xSemaphoreHandle ledSemaphore;
+static xQueueHandle xUARTQueue;
 #define BUFSIZE 200
 #define DBG printf
 
@@ -60,6 +64,7 @@ static xSemaphoreHandle ledSemaphore;
 #define LED_GPIO_MUX PERIPHS_IO_MUX_GPIO2_U
 #define LED_GPIO_FUNC FUNC_GPIO2
 
+#define GPIO_PIN_ADDR(i)        (GPIO_PIN0_ADDRESS + i*4)
 
 #define BUTTON_GPIO 0
 #define BUTTON_GPIO_MUX PERIPHS_IO_MUX_GPIO0_U
@@ -158,7 +163,7 @@ uint8_t send_command()
 		return 4;
 	}
 
-	bzero(data, BUFSIZE);
+	memset(data, 0, BUFSIZE);
 	do
 	{
 		nbytes = read(sock , data, (BUFSIZE-1));
@@ -180,7 +185,7 @@ uint8_t send_command()
 static ICACHE_FLASH_ATTR int
 configure(void)
 {
-	int ch;
+	char ch;
 	int ret; 
 	static struct station_config st_config;
 	wifi_station_get_config(&st_config);
@@ -193,30 +198,31 @@ configure(void)
 		printf("4: HTTP port[%d]\r\n", user_config.port);
 		printf("5: HTTP path/query [%s]\r\n", user_config.get_cmd);
 		printf("0: Exit configuration\r\n");
-		ch = uart_getchar();
+		// ch = uart_getchar();
+		xQueueReceive(xUARTQueue, &ch, -1);
 		switch (ch)
 		{
 		case '1':
 			printf("Enter Wifi SSID: ");
-			uart_gets(st_config.ssid, 32);
+			uart_gets(&xUARTQueue, st_config.ssid, 32);
 			break;
 		case '2':
 			printf("Enter Wifi Password: ");
-			uart_gets(st_config.password, 64);
+			uart_gets(&xUARTQueue, st_config.password, 64);
 			break;
 		case '3':
 			printf("Enter HTTP host: ");
-			uart_gets(user_config.host, HOST_LEN+1);
+			uart_gets(&xUARTQueue, user_config.host, HOST_LEN+1);
 			break;
 		case '4':
 			printf("Enter HTTP port: ");
 			char buf[6];
-			uart_gets(buf, 6);
+			uart_gets(&xUARTQueue, buf, 6);
 			user_config.port = atoi(buf);
 			break;
 		case '5':
 			printf("Enter HTTP path and query string: ");
-			uart_gets(user_config.get_cmd, GET_LEN+1);
+			uart_gets(&xUARTQueue, user_config.get_cmd, GET_LEN+1);
 			break;
 		case '0':
 			DBG("setting config [%s] [%s]\n", st_config.ssid, st_config.password);
@@ -306,7 +312,8 @@ check_connection(void *pvParameters)
 static ICACHE_FLASH_ATTR void
 check_input(void *pvParameters)
 {
-	int ch;
+	char ch;
+	xQueueHandle xUARTQueue = *(xQueueHandle *)pvParameters;
 	for(;;)
 	{
 		if (wifi_status == STATION_GOT_IP)
@@ -317,7 +324,9 @@ check_input(void *pvParameters)
 		{
 			printf("Hit 'c' to configure\r\n");
 		}
-		ch = uart_getchar(); // wait forever
+		// ch = uart_getchar(); // wait forever
+		xQueueReceive(xUARTQueue, &ch, -1);
+		// printf("lololol");
 		switch(ch)
 		{
 		case 'c':
@@ -339,12 +348,12 @@ check_input(void *pvParameters)
 				TASK_DELAY_MS(500);
 			}
 			break;
-		case -1: // This shouldn't happen?
+		case 0: // This shouldn't happen?
 			printf("Error reading serial data\r\n");
 			break;
 		default:
 			printf("Invalid key %d %c\r\n", ch, ch);
-			uart_rx_flush();
+			// uart_rx_flush();
 			TASK_DELAY_MS(500);
 		}
     }
@@ -358,6 +367,9 @@ void ICACHE_FLASH_ATTR
 user_init(void)
 {
 	bool ret;
+	// void (*foo)(void*);
+	// void *pointer; 
+	
 	PIN_FUNC_SELECT(LED_GPIO_MUX, LED_GPIO_FUNC);
 	PIN_FUNC_SELECT(BUTTON_GPIO_MUX, BUTTON_GPIO_FUNC);
 	// disable output drivers
@@ -365,10 +377,20 @@ user_init(void)
     GPIO_REG_WRITE(GPIO_OUT_W1TS_ADDRESS, 1 <<BUTTON_GPIO);
 
 	vSemaphoreCreateBinary(ledSemaphore);
-	// unsure what the default bit rate is, so set to a known value
-	uart_set_baud(UART0, BIT_RATE_9600);
-	uart_rx_init();
-	printf("Wifi Button example program.  Copyright (c) 2015 Matt Callow\r\n");
+	// Initialise UART
+	
+	xUARTQueue = xQueueCreate(128, sizeof(char));
+
+	uart_init_new();
+	// foo = &uart0_rx_intr_handler;
+	// pointer = &xUARTQueue;
+	UART_intr_handler_register(&uart0_rx_intr_handler, &xUARTQueue);
+    ETS_UART_INTR_ENABLE();
+
+    wifi_station_set_auto_connect(0);
+    // wifi_station_set_reconnect_policy(0);
+
+	printf("Wifi Button example program. \r\n");
 	if (!read_user_config(&user_config))
 	{
 		ret = wifi_set_opmode(STATION_MODE);
@@ -380,8 +402,9 @@ user_init(void)
 		printf ("No valid config\r\n");
 	}
 	xTaskCreate(check_button, "button", 256, NULL, 3, NULL);
-	xTaskCreate(check_input, "input", 256, NULL, 3, NULL);
+	xTaskCreate(check_input, "input", 256, &xUARTQueue, 3, NULL);
 	xTaskCreate(check_connection, "check", 256, NULL, 4, NULL);
+	// vTaskStartScheduler();
 }
 
 // vim: ts=4 sw=4 noexpandtab
