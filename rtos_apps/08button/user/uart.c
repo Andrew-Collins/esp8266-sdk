@@ -267,8 +267,8 @@ UART_SetIntrEna(UART_Port uart_no, uint32 ena_mask)
 void ICACHE_FLASH_ATTR
 UART_intr_handler_register(void *fn, void* arg)
 {
-    _xt_isr func = fn;
-    _xt_isr_attach(ETS_UART_INUM, func, fn);
+    // _xt_isr func = fn;
+    _xt_isr_attach(ETS_UART_INUM, fn, arg);
 }
 
 void ICACHE_FLASH_ATTR
