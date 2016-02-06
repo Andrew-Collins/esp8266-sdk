@@ -1,13 +1,14 @@
 // #include "esp8266/ets_sys.h"
 // #include "osapi.h"
-#include "user_config.h"
-#include "espconn.h"
+
+// #include "user_config.h"
+// #include "espconn.h"
 #include "uart.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
-#include "lwip/sockets.h"
-#include "lwip/err.h"
+#include "lwip/tcp.h"
+// #include "lwip/err.h"
 #include "esp_common.h"
 // #include "stdint.h"
 // #include "c_types.h"
@@ -23,8 +24,9 @@
 #endif
 
 
-struct espconn esp_conn;
-LOCAL esp_tcp esptcp;
+// struct espconn esp_conn;
+// LOCAL esp_tcp esptcp;
+struct tcp_pcb* opcb;
 
 static struct ip_info ipconfig;
 
@@ -86,12 +88,15 @@ read_user_config(user_config_t *config)
  * Parameters   : arg -- Additional argument to pass to the callback function
  * Returns      : none
 *******************************************************************************/
-LOCAL void ICACHE_FLASH_ATTR
-tcp_server_sent_cb(void *arg)
+
+LOCAL err_t
+tcp_server_sent_cb(void *arg, struct tcp_pcb *tpcb,
+                              u16_t len)
 {
    //data sent successfully
 
     printf("tcp sent cb \r\n");
+    return ERR_OK;
 }
 
 
@@ -101,15 +106,24 @@ tcp_server_sent_cb(void *arg)
  * Parameters   : arg -- Additional argument to pass to the callback function
  * Returns      : none
 *******************************************************************************/
-LOCAL void ICACHE_FLASH_ATTR
-tcp_server_recv_cb(void *arg, char *pusrdata, unsigned short length)
+LOCAL err_t
+tcp_server_recv_cb(void *arg, struct tcp_pcb *tpcb,
+                             struct pbuf *p, err_t err)
 {
    //received some data from tcp connection
    
-   struct espconn *pespconn = arg;
-   printf("tcp recv : %s \r\n", pusrdata);
+   // struct espconn *pespconn = arg;
+    if (p == NULL) {
+        tcp_close(tpcb);
+        printf("client disconnected\n");
+    } else {
+        printf("tcp recv : %s \r\n", (char*)(p->payload));
+        // printf("hi\n");
    
-   printf("%d\n",espconn_send(pespconn, pusrdata, length));
+        tcp_write(tpcb, p->payload, p->len, 0);
+        
+    }
+    return ERR_OK;
    
 }
 
@@ -119,13 +133,13 @@ tcp_server_recv_cb(void *arg, char *pusrdata, unsigned short length)
  * Parameters   : arg -- Additional argument to pass to the callback function
  * Returns      : none
 *******************************************************************************/
-LOCAL void ICACHE_FLASH_ATTR
-tcp_server_discon_cb(void *arg)
-{
-   //tcp disconnect successfully
+// LOCAL void ICACHE_FLASH_ATTR
+// tcp_server_discon_cb(void *arg)
+// {
+//    //tcp disconnect successfully
    
-    printf("tcp disconnect succeed !!! \r\n");
-}
+//     printf("tcp disconnect succeed !!! \r\n");
+// }
 
 /******************************************************************************
  * FunctionName : tcp_server_recon_cb
@@ -133,37 +147,37 @@ tcp_server_discon_cb(void *arg)
  * Parameters   : arg -- Additional argument to pass to the callback function
  * Returns      : none
 *******************************************************************************/
-LOCAL void ICACHE_FLASH_ATTR
-tcp_server_recon_cb(void *arg, sint8 err)
-{
-   //error occured , tcp connection broke.
+// LOCAL void ICACHE_FLASH_ATTR
+// tcp_server_recon_cb(void *arg, sint8 err)
+// {
+//    //error occured , tcp connection broke.
    
-    printf("reconnect callback, error code %d !!! \r\n",err);
-}
+//     printf("reconnect callback, error code %d !!! \r\n",err);
+// }
 
-LOCAL void tcp_server_multi_send(void* arg)
-{
-   struct espconn *pesp_conn = &esp_conn;
-    // struct espconn *pesp_conn = arg;
+// LOCAL void tcp_server_multi_send(void* arg)
+// {
+//    struct espconn *pesp_conn = &esp_conn;
+//     // struct espconn *pesp_conn = arg;
 
-   remot_info *premot = NULL;
-   uint8 count = 0;
-   sint8 value = ESPCONN_OK;
-   if (espconn_get_connection_info(pesp_conn,&premot,0) == ESPCONN_OK){
-      char *pbuf = "tcp_server_multi_send\n";
-      for (count = 0; count < pesp_conn->link_cnt; count ++){
-         pesp_conn->proto.tcp->remote_port = premot[count].remote_port;
+//    remot_info *premot = NULL;
+//    uint8 count = 0;
+//    sint8 value = ESPCONN_OK;
+//    if (espconn_get_connection_info(pesp_conn,&premot,0) == ESPCONN_OK){
+//       char *pbuf = "tcp_server_multi_send\n";
+//       for (count = 0; count < pesp_conn->link_cnt; count ++){
+//          pesp_conn->proto.tcp->remote_port = premot[count].remote_port;
          
-         pesp_conn->proto.tcp->remote_ip[0] = premot[count].remote_ip[0];
-         pesp_conn->proto.tcp->remote_ip[1] = premot[count].remote_ip[1];
-         pesp_conn->proto.tcp->remote_ip[2] = premot[count].remote_ip[2];
-         pesp_conn->proto.tcp->remote_ip[3] = premot[count].remote_ip[3];
+//          pesp_conn->proto.tcp->remote_ip[0] = premot[count].remote_ip[0];
+//          pesp_conn->proto.tcp->remote_ip[1] = premot[count].remote_ip[1];
+//          pesp_conn->proto.tcp->remote_ip[2] = premot[count].remote_ip[2];
+//          pesp_conn->proto.tcp->remote_ip[3] = premot[count].remote_ip[3];
 
-         printf("%d", espconn_send(pesp_conn, pbuf, strlen(pbuf)));
-         printf("multi %d\n", count);
-      }
-   }
-}
+//          printf("%d", espconn_send(pesp_conn, pbuf, strlen(pbuf)));
+//          printf("multi %d\n", count);
+//       }
+//    }
+// }
 
 
 /******************************************************************************
@@ -172,21 +186,31 @@ LOCAL void tcp_server_multi_send(void* arg)
  * Parameters   : arg -- Additional argument to pass to the callback function
  * Returns      : none
 *******************************************************************************/
-LOCAL void ICACHE_FLASH_ATTR
-tcp_server_listen(void *arg)
+LOCAL err_t
+tcp_server_listen(void *arg, struct tcp_pcb *newpcb, err_t err)
 {
-    struct espconn *pesp_conn = arg;
+    char* hello = "hello";
+    // struct espconn *pesp_conn = arg;
     printf("tcp_server_listen !!! \r\n");
 
-    printf("%d\n",espconn_set_opt(arg, ESPCONN_NODELAY));
+    tcp_setprio(newpcb, TCP_PRIO_MIN);
 
-    espconn_regist_recvcb(pesp_conn, tcp_server_recv_cb);
-    espconn_regist_reconcb(pesp_conn, tcp_server_recon_cb);
-    espconn_regist_disconcb(pesp_conn, tcp_server_discon_cb);
+    tcp_recv(newpcb, tcp_server_recv_cb);
+    tcp_sent(newpcb, tcp_server_sent_cb);
+
+    tcp_accepted(opcb);
+
+    // printf("%d\n",espconn_set_opt(arg, ESPCONN_NODELAY));
+
+    // espconn_regist_recvcb(pesp_conn, tcp_server_recv_cb);
+    // espconn_regist_reconcb(pesp_conn, tcp_server_recon_cb);
+    // espconn_regist_disconcb(pesp_conn, tcp_server_discon_cb);
 
    
-    printf("%d\n", espconn_regist_sentcb(pesp_conn, tcp_server_sent_cb));
-   tcp_server_multi_send(arg);
+    // printf("%d\n", espconn_regist_sentcb(pesp_conn, tcp_server_sent_cb));
+   // tcp_server_multi_send(arg);
+return ERR_OK;
+
 }
 
 /******************************************************************************
@@ -198,14 +222,22 @@ tcp_server_listen(void *arg)
 void ICACHE_FLASH_ATTR
 user_tcpserver_init(uint32 port)
 {
-    esp_conn.type = ESPCONN_TCP;
-    esp_conn.state = ESPCONN_NONE;
-    esp_conn.proto.tcp = &esptcp;
-    esp_conn.proto.tcp->local_port = port;
-    espconn_regist_connectcb(&esp_conn, tcp_server_listen);
+    int ret;
+    struct tcp_pcb* closed;
+    // esp_conn.type = ESPCONN_TCP;
+    // esp_conn.state = ESPCONN_NONE;
+    // esp_conn.proto.tcp = &esptcp;
+    // esp_conn.proto.tcp->local_port = port;
+    // espconn_regist_connectcb(&esp_conn, tcp_server_listen);
 
-    sint8 ret = espconn_accept(&esp_conn);
+    // sint8 ret = espconn_accept(&esp_conn);
     // espconn_regist_time(&esp_conn, 20, 0);
+
+    closed = tcp_new();
+    tcp_bind(closed, IP_ADDR_ANY, port);
+    opcb = tcp_listen(closed);
+    tcp_accept(opcb, tcp_server_listen);
+
    
     printf("espconn_accept [%d] !!! \r\n", ret);
 
@@ -259,37 +291,37 @@ user_esp_platform_check_ip(void)
  * Parameters   : none
  * Returns      : none
 *******************************************************************************/
-void ICACHE_FLASH_ATTR
-user_set_station_config(void)
-{
-  int i;
-   // Wifi configuration
-   char ssid[32] = SSID;
-   char password[64] = PASSWORD;
-   struct station_config stationConf;
+// void ICACHE_FLASH_ATTR
+// user_set_station_config(void)
+// {
+//   int i;
+//    // Wifi configuration
+//    char ssid[32] = SSID;
+//    char password[64] = PASSWORD;
+//    struct station_config stationConf;
 
-   //need not mac address
-   stationConf.bssid_set = 0;
+//    //need not mac address
+//    stationConf.bssid_set = 0;
    
-   //Set ap settings
-   // memcpy(&stationConf.ssid, ssid, 32);
-   // memcpy(&stationConf.password, password, 64);
-   for (i = 0; i < strlen(ssid); i++) {
-        stationConf.ssid[i] = ssid[i];
-   }
-   for (i = 0; i < strlen(password); i++) {
-        stationConf.password[i] = password[i];
-   }
-   // stationConf.ssid = ssid;
-   // stationConf.password = password;
-   wifi_station_set_config(&stationConf);
+//    //Set ap settings
+//    // memcpy(&stationConf.ssid, ssid, 32);
+//    // memcpy(&stationConf.password, password, 64);
+//    for (i = 0; i < strlen(ssid); i++) {
+//         stationConf.ssid[i] = ssid[i];
+//    }
+//    for (i = 0; i < strlen(password); i++) {
+//         stationConf.password[i] = password[i];
+//    }
+//    // stationConf.ssid = ssid;
+//    // stationConf.password = password;
+//    wifi_station_set_config(&stationConf);
 
-   //set a timer to check whether got ip from router succeed or not.
-   os_timer_disarm(&test_timer);
-   os_timer_setfn(&test_timer, (os_timer_func_t *)user_esp_platform_check_ip, NULL);
-   os_timer_arm(&test_timer, 100, 0);
+//    //set a timer to check whether got ip from router succeed or not.
+//    os_timer_disarm(&test_timer);
+//    os_timer_setfn(&test_timer, (os_timer_func_t *)user_esp_platform_check_ip, NULL);
+//    os_timer_arm(&test_timer, 100, 0);
 
-}
+// }
 
 /*
  * this task will print the message
@@ -476,6 +508,11 @@ void user_init(void)
     {
         printf ("No valid config\r\n");
     }
+
+    // sys_init_timing();
+   lwip_init();
+
+   // while(1);
 
    // xTaskCreate(check_input, "input", 256, &xUARTQueue, 3, NULL);
 

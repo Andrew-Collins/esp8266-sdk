@@ -4,9 +4,7 @@
  */
 
 
-
 #include "uart.h"
-
 
 enum {
     UART_EVENT_RX_CHAR,
