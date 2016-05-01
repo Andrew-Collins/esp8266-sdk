@@ -7,7 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
-#include "lwip/tcp.h"
+#include "lwip/udp.h"
 // #include "lwip/err.h"
 #include "esp_common.h"
 // #include "stdint.h"
@@ -26,7 +26,8 @@
 
 // struct espconn esp_conn;
 // LOCAL esp_tcp esptcp;
-struct tcp_pcb* opcb;
+// struct tcp_pcb* opcb;
+struct udp_pcb* udpconn;
 
 static struct ip_info ipconfig;
 
@@ -89,15 +90,15 @@ read_user_config(user_config_t *config)
  * Returns      : none
 *******************************************************************************/
 
-LOCAL err_t
-tcp_server_sent_cb(void *arg, struct tcp_pcb *tpcb,
-                              u16_t len)
-{
-   //data sent successfully
+// LOCAL err_t
+// tcp_server_sent_cb(void *arg, struct tcp_pcb *tpcb,
+//                               u16_t len)
+// {
+//    //data sent successfully
 
-    printf("tcp sent cb \r\n");
-    return ERR_OK;
-}
+//     printf("tcp sent cb \r\n");
+//     return ERR_OK;
+// }
 
 
 /******************************************************************************
@@ -106,24 +107,25 @@ tcp_server_sent_cb(void *arg, struct tcp_pcb *tpcb,
  * Parameters   : arg -- Additional argument to pass to the callback function
  * Returns      : none
 *******************************************************************************/
-LOCAL err_t
-tcp_server_recv_cb(void *arg, struct tcp_pcb *tpcb,
-                             struct pbuf *p, err_t err)
+void 
+udp_server_recv_cb(void *arg, struct udp_pcb *upcb,
+                             struct pbuf *p, ip_addr_t *addr, u16_t port)
 {
    //received some data from tcp connection
    
    // struct espconn *pespconn = arg;
     if (p == NULL) {
-        tcp_close(tpcb);
-        printf("client disconnected\n");
+        // tcp_close(tpcb);
+        printf("No data\n");
     } else {
-        printf("tcp recv : %s \r\n", (char*)(p->payload));
+        printf("udp recv : %s \r\n", (char*)(p->payload));
         // printf("hi\n");
    
-        tcp_write(tpcb, p->payload, p->len, 0);
+        udp_sendto(upcb, p, addr, port);
+        // tcp_write(upcb, p->payload, p->len, 0);
         
     }
-    return ERR_OK;
+    // return ERR_OK;
    
 }
 
@@ -186,32 +188,32 @@ tcp_server_recv_cb(void *arg, struct tcp_pcb *tpcb,
  * Parameters   : arg -- Additional argument to pass to the callback function
  * Returns      : none
 *******************************************************************************/
-LOCAL err_t
-tcp_server_listen(void *arg, struct tcp_pcb *newpcb, err_t err)
-{
-    char* hello = "hello";
-    // struct espconn *pesp_conn = arg;
-    printf("tcp_server_listen !!! \r\n");
+// LOCAL err_t
+// tcp_server_listen(void *arg, struct tcp_pcb *newpcb, err_t err)
+// {
+//     char* hello = "hello";
+//     // struct espconn *pesp_conn = arg;
+//     printf("tcp_server_listen !!! \r\n");
 
-    tcp_setprio(newpcb, TCP_PRIO_MIN);
+//     tcp_setprio(newpcb, TCP_PRIO_MIN);
 
-    tcp_recv(newpcb, tcp_server_recv_cb);
-    tcp_sent(newpcb, tcp_server_sent_cb);
+//     tcp_recv(newpcb, tcp_server_recv_cb);
+//     tcp_sent(newpcb, tcp_server_sent_cb);
 
-    tcp_accepted(opcb);
+//     tcp_accepted(opcb);
 
-    // printf("%d\n",espconn_set_opt(arg, ESPCONN_NODELAY));
+//     // printf("%d\n",espconn_set_opt(arg, ESPCONN_NODELAY));
 
-    // espconn_regist_recvcb(pesp_conn, tcp_server_recv_cb);
-    // espconn_regist_reconcb(pesp_conn, tcp_server_recon_cb);
-    // espconn_regist_disconcb(pesp_conn, tcp_server_discon_cb);
+//     // espconn_regist_recvcb(pesp_conn, tcp_server_recv_cb);
+//     // espconn_regist_reconcb(pesp_conn, tcp_server_recon_cb);
+//     // espconn_regist_disconcb(pesp_conn, tcp_server_discon_cb);
 
    
-    // printf("%d\n", espconn_regist_sentcb(pesp_conn, tcp_server_sent_cb));
-   // tcp_server_multi_send(arg);
-return ERR_OK;
+//     // printf("%d\n", espconn_regist_sentcb(pesp_conn, tcp_server_sent_cb));
+//    // tcp_server_multi_send(arg);
+// return ERR_OK;
 
-}
+// }
 
 /******************************************************************************
  * FunctionName : user_tcpserver_init
@@ -220,10 +222,9 @@ return ERR_OK;
  * Returns      : none
 *******************************************************************************/
 void ICACHE_FLASH_ATTR
-user_tcpserver_init(uint32 port)
+user_udpserver_init(uint32 port)
 {
     int ret;
-    struct tcp_pcb* closed;
     // esp_conn.type = ESPCONN_TCP;
     // esp_conn.state = ESPCONN_NONE;
     // esp_conn.proto.tcp = &esptcp;
@@ -233,10 +234,11 @@ user_tcpserver_init(uint32 port)
     // sint8 ret = espconn_accept(&esp_conn);
     // espconn_regist_time(&esp_conn, 20, 0);
 
-    closed = tcp_new();
-    tcp_bind(closed, IP_ADDR_ANY, port);
-    opcb = tcp_listen(closed);
-    tcp_accept(opcb, tcp_server_listen);
+    udpconn = udp_new();
+    udp_bind(udpconn, IP_ADDR_ANY, port);
+    udp_recv(udpconn, udp_server_recv_cb, NULL);
+    // opcb = tcp_listen(closed);
+    // tcp_accept(opcb, tcp_server_listen);
 
    
     printf("espconn_accept [%d] !!! \r\n", ret);
@@ -500,7 +502,7 @@ void user_init(void)
         ret = wifi_set_opmode(STATIONAP_MODE);
         DBG("wifi_set_opmode returns %d op_mode now %d\r\n", ret, wifi_get_opmode());
         // user_set_station_config();
-        user_tcpserver_init(SERVER_LOCAL_PORT);
+        user_udpserver_init(SERVER_LOCAL_PORT);
         // user_tcpserver_init(SERVER_LOCAL_PORT);
         wifi_station_set_auto_connect(1);
     }
