@@ -74,14 +74,16 @@ uart_rx_intr_handler_ssc(void)
         return;
     }
 
-    RcvChar = READ_PERI_REG(UART_FIFO(uart_no)) & 0xFF;
+    do {
+        RcvChar = READ_PERI_REG(UART_FIFO(uart_no)) & 0xFF;
+        if (RcvChar != 0) {
+            e.event = UART_EVENT_RX_CHAR;
+            e.param = RcvChar;
+            xQueueSendFromISR(xQueueUart, (void *)&e, &xHigherPriorityTaskWoken);
+        }     
+    } while (RcvChar !=0);
 
     WRITE_PERI_REG(UART_INT_CLR(uart_no), UART_RXFIFO_FULL_INT_CLR);
-
-    e.event = UART_EVENT_RX_CHAR;
-    e.param = RcvChar;
-
-    xQueueSendFromISR(xQueueUart, (void *)&e, &xHigherPriorityTaskWoken);
     portEND_SWITCHING_ISR(xHigherPriorityTaskWoken);
 }
 
@@ -353,7 +355,9 @@ uart0_rx_intr_handler(void *para)
             buf_idx = 0;
             //Print them out one at a time.
             while (buf_idx < fifo_len) {
-                uart_tx_one_char(UART0, READ_PERI_REG(UART_FIFO(UART0)) & 0xFF);
+                // uart_tx_one_char(UART0, READ_PERI_REG(UART_FIFO(UART0)) & 0xFF);
+                RcvChar = READ_PERI_REG(UART_FIFO(UART0)) & 0xFF;
+                xQueueSendToBackFromISR( xUARTQueue, &RcvChar, NULL);
                 buf_idx++;
             }   
             //Clear the full interrupt flag
@@ -416,6 +420,7 @@ uart_init_new(void)
 
     UART_IntrConfTypeDef uart_intr;
     uart_intr.UART_IntrEnMask = UART_RXFIFO_TOUT_INT_ENA | UART_FRM_ERR_INT_ENA | UART_RXFIFO_FULL_INT_ENA | UART_TXFIFO_EMPTY_INT_ENA;
+    // uart_intr.UART_IntrEnMask = UART_RXFIFO_TOUT_INT_ENA | UART_RXFIFO_FULL_INT_ENA;
     uart_intr.UART_RX_FifoFullIntrThresh = 10;
     uart_intr.UART_RX_TimeOutIntrThresh = 2;
     uart_intr.UART_TX_FifoEmptyIntrThresh = 20;

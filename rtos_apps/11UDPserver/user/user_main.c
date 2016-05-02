@@ -29,6 +29,9 @@
 // struct tcp_pcb* opcb;
 struct udp_pcb* udpconn;
 
+struct station_info * clients;
+struct pbuf* saved_p;
+
 static struct ip_info ipconfig;
 
 #define GET_LEN 128
@@ -49,6 +52,7 @@ static xQueueHandle xUARTQueue;
 
 
 #define SERVER_LOCAL_PORT   1112
+#define DESTINATION_PORT    1113
 
 #define TASK_DELAY_MS(m) vTaskDelay(m/portTICK_RATE_MS)
 #define PRIV_PARAM_START_SEC            0x7B
@@ -120,8 +124,16 @@ udp_server_recv_cb(void *arg, struct udp_pcb *upcb,
     } else {
         printf("udp recv : %s \r\n", (char*)(p->payload));
         // printf("hi\n");
+        printf("%d %d %d %d %d", p->tot_len, p->len, p->type, p->flags, p->ref);
+
+        saved_p = p;
+
+        clients = wifi_softap_get_station_info();
+        printf("port %d\n\r", port);
+        printf("Client IP: %d.%d.%d.%d\n\r", (clients->ip.addr) >> 24, ((clients->ip.addr) >> 16) &0xFF, ((clients->ip.addr) >> 8) &0xFF, (clients->ip.addr)&0xFF);
+
    
-        udp_sendto(upcb, p, addr, port);
+        udp_sendto(udpconn, p, &clients->ip, port);
         // tcp_write(upcb, p->payload, p->len, 0);
         
     }
@@ -414,54 +426,85 @@ configure(void)
 static ICACHE_FLASH_ATTR void
 check_input(void *pvParameters)
 {
-    char ch;
+    static char ch, buff[3];
+    static struct pbuf *p = NULL;
     xQueueHandle xUARTQueue = *(xQueueHandle *)pvParameters;
-    
+
+    if(!p) {
+        // p = malloc(sizeof(struct pbuf));
+        // p->next = NULL; 
+        // p->tot_len = 2;
+        // p->len = 2;
+        // p->type = 2;
+        // p->flags = 0;
+        // p->ref = 1;
+        p = pbuf_alloc(PBUF_IP, 1, 2);
+    }
+
+    buff[1] = '\n';
+    buff[2]= 0;
+
     for(;;)
     {
-        wifi_status = wifi_station_get_connect_status();
-        if (wifi_status == STATION_GOT_IP)
-        {
-            printf("Hit 'c' to configure, 't' to test\r\n");
-        }
-        else
-        {
-            printf("Hit 'c' to configure\r\n");
-        }
+        // wifi_status = wifi_station_get_connect_status();
+        // if (wifi_status == STATION_GOT_IP)
+        // {
+        //     printf("Hit 'c' to configure, 't' to test\r\n");
+        // }
+        // else
+        // {
+        //     printf("Hit 'c' to configure\r\n");
+        // }
         // ch = uart_getchar(); // wait forever
         xQueueReceive(xUARTQueue, &ch, -1);
+
+        buff[0] = ch;
+        printf("Char %c!!!\n\r", ch);
+        // p->payload = (void*)buff;
+        p = pbuf_alloc(PBUF_IP, 1, 2);
+        p->payload = (void*)&ch;
+        // printf("received!!!\n\r");
+        printf("%d %d %d %d %d", p->tot_len, p->len, p->type, p->flags, p->ref);
+
+        clients = wifi_softap_get_station_info();
+
+        // printf("received!!!\n\r");
+
+        udp_sendto(udpconn, p, &clients->ip, DESTINATION_PORT);
         // wifi_station_set_auto_connect(0);
         // printf("lololol");
-        switch(ch)
-        {
-        case 'c':
-        case 'C':
-            configure();
-            break;
-        case 't':
-        case 'T':
-            if (wifi_status == STATION_GOT_IP) 
-            {
-                printf("connected!\n");
-                    // if(send_command())
-                    // {
-                    //     printf("Send command failed!\r\n");
-                    // }
-            }
-            else
-            {
-                printf("Not connected\r\n");
-                TASK_DELAY_MS(500);
-            }
-            break;
-        case 0: // This shouldn't happen?
-            printf("Error reading serial data\r\n");
-            break;
-        default:
-            printf("Invalid key %d %c\r\n", ch, ch);
-            // uart_rx_flush();
-            TASK_DELAY_MS(500);
-        }
+
+
+        // switch(ch)
+        // {
+        // case 'c':
+        // case 'C':
+        //     configure();
+        //     break;
+        // case 't':
+        // case 'T':
+        //     if (wifi_status == STATION_GOT_IP) 
+        //     {
+        //         printf("connected!\n");
+        //             // if(send_command())
+        //             // {
+        //             //     printf("Send command failed!\r\n");
+        //             // }
+        //     }
+        //     else
+        //     {
+        //         printf("Not connected\r\n");
+        //         TASK_DELAY_MS(500);
+        //     }
+        //     break;
+        // case 0: // This shouldn't happen?
+        //     printf("Error reading serial data\r\n");
+        //     break;
+        // default:
+        //     printf("Invalid key %d %c\r\n", ch, ch);
+        //     // uart_rx_flush();
+        //     TASK_DELAY_MS(500);
+        // }
     }
 }
 
@@ -484,40 +527,45 @@ void user_init(void)
 
    
    //Set  station mode
-   wifi_set_opmode(STATIONAP_MODE);
+   // wifi_set_opmode(STATIONAP_MODE);
+    ret = wifi_set_opmode(SOFTAP_MODE);
 
    // ESP8266 connect to router.
    // user_set_station_config();
 
    // Setup TCP server
    
+    // ret = wifi_set_opmode(STATIONAP_MODE);
+    DBG("wifi_set_opmode returns %d op_mode now %d\r\n", ret, wifi_get_opmode());
+    // user_set_station_config();
+    user_udpserver_init(SERVER_LOCAL_PORT);
 
 
-   wifi_station_set_auto_connect(0);
-    // wifi_station_set_reconnect_policy(0);
+   // wifi_station_set_auto_connect(0);
+   //  // wifi_station_set_reconnect_policy(0);
 
-    printf("Wifi Button example program. \r\n");
-    if (!read_user_config(&user_config))
-    {
-        ret = wifi_set_opmode(STATIONAP_MODE);
-        DBG("wifi_set_opmode returns %d op_mode now %d\r\n", ret, wifi_get_opmode());
-        // user_set_station_config();
-        user_udpserver_init(SERVER_LOCAL_PORT);
-        // user_tcpserver_init(SERVER_LOCAL_PORT);
-        wifi_station_set_auto_connect(1);
-    }
-    else
-    {
-        printf ("No valid config\r\n");
-    }
+   //  printf("Wifi Button example program. \r\n");
+   //  if (!read_user_config(&user_config))
+   //  {
+   //      ret = wifi_set_opmode(STATIONAP_MODE);
+   //      DBG("wifi_set_opmode returns %d op_mode now %d\r\n", ret, wifi_get_opmode());
+   //      // user_set_station_config();
+   //      user_udpserver_init(SERVER_LOCAL_PORT);
+   //      // user_tcpserver_init(SERVER_LOCAL_PORT);
+   //      // wifi_station_set_auto_connect(1);
+   //  }
+   //  else
+   //  {
+   //      printf ("No valid config\r\n");
+   //  }
 
-    printf("Hiya");
+   //  printf("Hiya");
     // sys_init_timing();
    lwip_init();
 
    // while(1);
 
-   // xTaskCreate(check_input, "input", 256, &xUARTQueue, 3, NULL);
+   xTaskCreate(check_input, "input", 256, &xUARTQueue, 3, NULL);
 
    // xTaskCreate(helloworld, "hw", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
    // xTaskCreate(blinky, "bl", configMINIMAL_STACK_SIZE, NULL, 2, NULL);
